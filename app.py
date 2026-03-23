@@ -2,10 +2,17 @@ import streamlit as st
 import google.generativeai as genai
 from google.api_core import exceptions
 
-# 1. PAGE CONFIGURATION
+# ── 1. PAGE & API CONFIG ─────────────────────────────────────
 st.set_page_config(page_title="EthicsBot – EE Ethics", page_icon="⚡", layout="wide")
 
-# 2. STYLING
+# Move this outside the function to stay connected efficiently
+if "GEMINI_API_KEY" in st.secrets:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    model = genai.GenerativeModel(model_name="gemini-2.0-flash")
+else:
+    st.error("Missing GEMINI_API_KEY in Streamlit Secrets!")
+
+# ── 2. STYLING ──────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap');
@@ -15,25 +22,10 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
 [data-testid="stChatMessage"] { background: white; border-radius: 12px; border: 1px solid #e2ddd4; margin-bottom: 6px; }
 section[data-testid="stSidebar"] { background: #0f1f3d !important; }
 section[data-testid="stSidebar"] * { color: rgba(255,255,255,0.85) !important; }
-section[data-testid="stSidebar"] .stButton button {
-    background: transparent !important; border: 1px solid rgba(255,255,255,0.15) !important;
-    color: rgba(255,255,255,0.8) !important; border-radius: 8px !important;
-    text-align: left !important; font-size: 0.78rem !important; padding: 6px 10px !important;
-}
-section[data-testid="stSidebar"] .stButton button:hover {
-    background: rgba(201,168,76,0.2) !important; border-color: #c9a84c !important; color: #f0d98a !important;
-}
 </style>
 """, unsafe_allow_html=True)
 
-# 3. GLOBAL API INITIALIZATION
-try:
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    model = genai.GenerativeModel(model_name="gemini-2.0-flash")
-except Exception as e:
-    st.error("API Configuration failed. Please check your Streamlit Secrets.")
-
-# 4. HEADER & MODE SELECTOR
+# ── 3. HEADER & PROMPTS ──────────────────────────────────────
 st.markdown("""
 <div style="background:#0f1f3d;padding:16px 24px;border-radius:12px;border-bottom:3px solid #c9a84c;margin-bottom:20px">
   <h2 style="color:white;margin:0;font-size:1.25rem">⚡ EthicsBot — Electrical Engineering Ethics</h2>
@@ -46,16 +38,13 @@ st.markdown("""
 mode = st.selectbox("Mode", ["💬 General Q&A", "🧠 Quiz Me", "📖 Ethical Scenario", "📝 Exam Prep"], label_visibility="collapsed")
 
 SYSTEM_PROMPTS = {
-    "💬 General Q&A": """You are EthicsBot, a specialized assistant for engineering ethics. 
-    Expertise: IEEE, NSPE, and PEC Codes. 
-    CASE STUDIES: Therac-25, Challenger, Columbia, Boeing 737 MAX, OceanGate, Baldia Town, Attabad Landslide, Gul Plaza Fire.
-    Cite codes where applicable. Be academic and professional.""",
-    "🧠 Quiz Me": "You are EthicsBot in QUIZ MODE. Ask ONE multiple-choice question at a time.",
-    "📖 Ethical Scenario": "Present realistic engineering dilemmas like the Baldia Town Fire and ask for the student's reaction.",
-    "📝 Exam Prep": "Give concise exam-ready answers regarding whistleblowing, conflict of interest, and professional ethics."
+    "💬 General Q&A": "You are EthicsBot, an expert in IEEE, NSPE, and PEC codes. Focus on academic and professional responses.",
+    "🧠 Quiz Me": "Ask one multiple-choice question at a time. Explain the answer afterward.",
+    "📖 Ethical Scenario": "Present dilemmas like the Baldia Town Fire or substandard wiring and ask for the student's reaction.",
+    "📝 Exam Prep": "Provide concise definitions for terms like Whistleblowing and Conflict of Interest."
 }
 
-# 5. SESSION STATE
+# ── 4. SESSION STATE ─────────────────────────────────────────
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "current_mode" not in st.session_state:
@@ -67,15 +56,17 @@ if st.session_state.current_mode != mode:
     st.session_state.messages = []
     st.session_state.current_mode = mode
 
-# 6. IMPROVED API HELPER
+# ── 5. RESPONSE HELPER (Rate Limit Protected) ───────────────
 def get_gemini_response(messages, system_prompt):
-    recent_messages = messages[-10:] if len(messages) > 10 else messages
+    # Sliding window: only send the last 8 messages to save tokens
+    recent_messages = messages[-8:] if len(messages) > 8 else messages
     history = []
     for m in recent_messages[:-1]:
         role = "user" if m["role"] == "user" else "model"
         history.append({"role": role, "parts": [m["content"]]})
     
     try:
+        # Create a temporary model instance with the specific system instruction
         chat_model = genai.GenerativeModel(
             model_name="gemini-2.0-flash",
             system_instruction=system_prompt
@@ -88,25 +79,19 @@ def get_gemini_response(messages, system_prompt):
     except Exception as e:
         return f"⚠️ **Error:** {str(e)}"
 
-# 7. SIDEBAR & LOGIC
+# ── 6. SIDEBAR & LOGIC ───────────────────────────────────────
 with st.sidebar:
     st.markdown("### ⚡ EthicsBot")
-    st.markdown("---")
-    if st.button("Whistleblowing", use_container_width=True):
-        st.session_state.pending_question = "When is an engineer ethically required to blow the whistle?"
     if st.button("🗑 Clear Chat", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
 
-if st.session_state.pending_question:
-    q = st.session_state.pending_question
-    st.session_state.pending_question = None
-    st.session_state.messages.append({"role": "user", "content": q})
-
+# Display chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"], avatar="⚡" if msg["role"] == "assistant" else "🎓"):
         st.markdown(msg["content"])
 
+# Chat input
 if prompt := st.chat_input("Ask about engineering ethics..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user", avatar="🎓"):
