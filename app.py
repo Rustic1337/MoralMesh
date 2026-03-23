@@ -28,28 +28,40 @@ def safe_send(chat, msg):
     return None
 
 
-# ── Gemini response ──────────────────────────────────────────
+# ── Gemini response (FINAL FIXED) ────────────────────────────
 def get_gemini_response(messages, system_prompt):
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-    model = genai.GenerativeModel(
-        model_name="models/gemini-1.5-flash",  # ✅ correct model name
-        system_instruction=system_prompt
-    )
+    # 🔥 Try multiple models (fallback system)
+    model_names = [
+        "gemini-1.5-flash",
+        "models/gemini-1.5-flash",
+        "gemini-pro"
+    ]
 
-    history = []
-    for m in build_history(messages):
-        role = "user" if m["role"] == "user" else "model"
-        history.append({"role": role, "parts": [m["content"]]})
+    for name in model_names:
+        try:
+            model = genai.GenerativeModel(
+                model_name=name,
+                system_instruction=system_prompt
+            )
 
-    chat = model.start_chat(history=history)
+            history = []
+            for m in build_history(messages):
+                role = "user" if m["role"] == "user" else "model"
+                history.append({"role": role, "parts": [m["content"]]})
 
-    response = safe_send(chat, messages[-1]["content"])
+            chat = model.start_chat(history=history)
 
-    if response:
-        return response.text
-    else:
-        return "⚠️ Server busy. Please try again in a moment."
+            response = safe_send(chat, messages[-1]["content"])
+
+            if response:
+                return response.text
+
+        except Exception:
+            continue  # try next model
+
+    return "⚠️ API/model issue. Check your API key or try again later."
 
 
 # ── Session state ────────────────────────────────────────────
@@ -70,7 +82,7 @@ for msg in st.session_state.messages:
 # ── Chat input ───────────────────────────────────────────────
 if prompt := st.chat_input("Ask about engineering ethics, IEEE codes, Pakistan cases…"):
 
-    # ⏳ Cooldown (prevents rate limit)
+    # ⏳ Cooldown
     now = time.time()
     if now - st.session_state.last_call < 2:
         st.warning("⏳ Wait a second before sending another message")
